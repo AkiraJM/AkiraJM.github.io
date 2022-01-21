@@ -1,0 +1,577 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>第一个three.js文件_WebGL三维场景</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      /* 隐藏body窗口区域滚动条 */
+    }
+  </style>
+  <!--引入three.js三维引擎-->
+  <script src="js/three.js"></script>
+  <!-- <script src="js/ObjectLoader.js"></script> -->
+</head>
+<body>
+    <script type="x-shader/x-vertex" id="vertexshader">
+
+        #define PHONG
+        varying vec3 vViewPosition;
+
+        uniform vec3 vWindDirection;
+        uniform float uTime;
+        uniform float uWindSpeed;
+        uniform float uWindTexScale;
+        uniform mat2 mWindRotate;
+
+        varying float vUpwindSlopeCoeff;
+        varying float vLeewardSlopeCoeff;
+        varying vec2 vUpwindTexCoord;
+        varying vec2 vLeewardTexCoord;
+        varying vec2 vWindSpotsTexCoord;
+
+        #include <common>
+        #include <uv_pars_vertex>
+        #include <uv2_pars_vertex>
+        #include <displacementmap_pars_vertex>
+        #include <envmap_pars_vertex>
+        #include <color_pars_vertex>
+        #include <fog_pars_vertex>
+        #include <normal_pars_vertex>
+        #include <morphtarget_pars_vertex>
+        #include <skinning_pars_vertex>
+        #include <shadowmap_pars_vertex>
+        #include <logdepthbuf_pars_vertex>
+        #include <clipping_planes_pars_vertex>
+
+        void main() {
+            #include <uv_vertex>
+            #include <uv2_vertex>
+            #include <color_vertex>
+            #include <beginnormal_vertex>
+            #include <morphnormal_vertex>
+            #include <skinbase_vertex>
+            #include <skinnormal_vertex>
+            #include <defaultnormal_vertex>
+            #include <normal_vertex>
+
+            vUpwindSlopeCoeff = clamp( 10.0*dot(normal, normalize(vWindDirection)), 0.0, 1.0);
+            vLeewardSlopeCoeff = clamp( 4.0*dot(normal, -1.0 * normalize(vWindDirection)), 0.0, 1.0);
+
+            vUpwindTexCoord = vUv * vec2(100.0, 10.0) * uWindTexScale;
+            vUpwindTexCoord.y -= uTime * uWindSpeed;
+            vUpwindTexCoord *= mWindRotate;
+            vLeewardTexCoord = vUv * vec2(20.0, 30.0) * uWindTexScale;
+            vLeewardTexCoord.y -= uTime * uWindSpeed;
+            vLeewardTexCoord *= mWindRotate;
+            vWindSpotsTexCoord = vUv * vec2(1.5, 1.5) * uWindTexScale;
+            vWindSpotsTexCoord.x -= uTime * 0.1* uWindSpeed;
+            vWindSpotsTexCoord *= mWindRotate;
+
+            #include <begin_vertex>
+            #include <morphtarget_vertex>
+            #include <skinning_vertex>
+            #include <displacementmap_vertex>
+            #include <project_vertex>
+            #include <logdepthbuf_vertex>
+            #include <clipping_planes_vertex>
+            vViewPosition = - mvPosition.xyz;
+            #include <worldpos_vertex>
+            #include <envmap_vertex>
+            #include <shadowmap_vertex>
+            #include <fog_vertex>
+        }
+
+    </script>
+
+    <script type="x-shader/x-fragment" id="fragmentshader">
+
+        #define PHONG
+        uniform vec3 diffuse;
+        uniform vec3 emissive;
+        uniform vec3 specular;
+        uniform float shininess;
+        uniform float opacity;
+        uniform float normalRepeatTimes;
+        uniform float mapRepeatTimes;
+
+        uniform sampler2D sDust;
+        uniform float uDustOpacity;
+        uniform vec4 uWavesColor;
+        uniform vec3 vFogColor;
+
+        varying float vUpwindSlopeCoeff;
+        varying float vLeewardSlopeCoeff;
+        varying vec2 vUpwindTexCoord;
+        varying vec2 vLeewardTexCoord;
+        varying vec2 vWindSpotsTexCoord;
+
+        #include <common>
+        #include <packing>
+        #include <dithering_pars_fragment>
+        #include <color_pars_fragment>
+        #include <uv_pars_fragment>
+        #include <uv2_pars_fragment>
+        #include <map_pars_fragment>
+        #include <alphamap_pars_fragment>
+        #include <alphatest_pars_fragment>
+        #include <aomap_pars_fragment>
+        #include <lightmap_pars_fragment>
+        #include <emissivemap_pars_fragment>
+        #include <envmap_common_pars_fragment>
+        #include <envmap_pars_fragment>
+        #include <cube_uv_reflection_fragment>
+        #include <fog_pars_fragment>
+        #include <bsdfs>
+        #include <lights_pars_begin>
+        #include <normal_pars_fragment>
+        #include <lights_phong_pars_fragment>
+        #include <shadowmap_pars_fragment>
+        #include <bumpmap_pars_fragment>
+        #include <normalmap_pars_fragment>
+        #include <specularmap_pars_fragment>
+        #include <logdepthbuf_pars_fragment>
+        #include <clipping_planes_pars_fragment>
+
+        vec4 mapTexelToLinear( vec4 value ) { return LinearToLinear( value ); }
+
+        void main() {
+            #include <clipping_planes_fragment>
+            vec4 diffuseColor = vec4( diffuse, opacity );
+            ReflectedLight reflectedLight = ReflectedLight( vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ), vec3( 0.0 ) );
+            vec3 totalEmissiveRadiance = emissive;
+            #include <logdepthbuf_fragment>
+            #ifdef USE_MAP
+            vec4 texelColor = texture2D( map, vUv*mapRepeatTimes );
+            texelColor = mapTexelToLinear( texelColor );
+            diffuseColor *= texelColor;
+            #endif
+            vec4 windward = texture2D(sDust, vUpwindTexCoord);
+            vec4 leeward = texture2D(sDust, vLeewardTexCoord);
+            vec4 waves = windward * vUpwindSlopeCoeff;
+            waves += leeward * vLeewardSlopeCoeff;
+            waves *= 1.0 - clamp(texture2D(sDust, vWindSpotsTexCoord).r * 5.0, 0.0, 1.0);
+
+            //diffuseColor.rgb = vec3(vUpwindSlopeCoeff, vLeewardSlopeCoeff, 0.0);
+            diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb+(waves * uWavesColor).rgb, uDustOpacity);
+            #include <color_fragment>
+            #include <alphamap_fragment>
+            #include <alphatest_fragment>
+            #include <specularmap_fragment>
+            #include <normal_fragment_begin>
+            #ifdef OBJECTSPACE_NORMALMAP
+            normal = texture2D( normalMap, vUv * normalRepeatTimes ).xyz * 2.0 - 1.0; // overrides both flatShading and attribute normals
+            #ifdef FLIP_SIDED
+            normal = - normal;
+            #endif
+            #ifdef DOUBLE_SIDED
+            normal = normal * faceDirection;
+            #endif
+            normal = normalize( normalMatrix * normal );
+            #elif defined( TANGENTSPACE_NORMALMAP )
+            vec3 mapN = texture2D( normalMap, vUv * normalRepeatTimes ).xyz * 2.0 - 1.0;
+            mapN.xy *= normalScale;
+            #ifdef USE_TANGENT
+            normal = normalize( vTBN * mapN );
+            #else
+            normal = perturbNormal2Arb( - vViewPosition, normal, mapN, faceDirection );
+            #endif
+            #elif defined( USE_BUMPMAP )
+            normal = perturbNormalArb( - vViewPosition, normal, dHdxy_fwd(), faceDirection );
+            #endif
+            #include <emissivemap_fragment>
+
+            // accumulation
+            #include <lights_phong_fragment>
+            #include <lights_fragment_begin>
+            #include <lights_fragment_maps>
+            #include <lights_fragment_end>
+
+            // modulation
+            #include <aomap_fragment>
+            vec3 outgoingLight = reflectedLight.directDiffuse + reflectedLight.indirectDiffuse + reflectedLight.directSpecular + reflectedLight.indirectSpecular + totalEmissiveRadiance;
+            #include <envmap_fragment>
+
+            #include <output_fragment>
+            #include <tonemapping_fragment>
+            #include <encodings_fragment>
+            //#include <fog_fragment>
+            float fogFactor = smoothstep( 1.0, 800.0, vFogDepth );
+            gl_FragColor.rgb = mix( gl_FragColor.rgb, vFogColor, fogFactor );
+            #include <premultiplied_alpha_fragment>
+            #include <dithering_fragment>
+        }
+
+    </script>
+  <script type="module">
+    import { OrbitControls } from './js/OrbitControls.js';
+    import { FirstPersonControls } from './js/FirstPersonControls.js';
+    import { FlyControls } from './js/FlyControls.js';
+
+
+    function blur(input,width,height){
+      var out = new Array(width);
+      for(var a=0;a<width;a++)
+      {
+        out[a] = new Array(height);
+        for(var b=0;b<height;b++){
+            out[a][b] = input[a][b];
+      }
+      }
+      for(var i=0; i<width;i++){
+        for(var j =0;j<height;j++){
+            if(i==0){
+              if(j==0){
+                  out[i][j] = 0.25 * (out[i][j]+out[i+1][j]+out[i][j+1]+out[i+1][j+1])
+              }else if(j==height-1){
+                  out[i][j] = 0.25 * (out[i][j]+out[i+1][j]+out[i][j-1]+out[i+1][j-1])
+              }else{
+                  out[i][j] = 1.0/6.0 * (out[i][j]+out[i+1][j]+out[i][j-1]+out[i+1][j-1]+out[i][j+1]+out[i+1][j+1])
+              }
+            }else if(i==width-1){
+              if(j==0){
+                  out[i][j] = 0.25 * (out[i][j]+out[i-1][j]+out[i][j+1]+out[i-1][j+1])
+              }else if(j==height-1){
+                  out[i][j] = 0.25 * (out[i][j]+out[i-1][j]+out[i][j-1]+out[i-1][j-1])
+              }else{
+                  out[i][j] = 1.0/6.0  * (out[i][j]+out[i-1][j]+out[i][j-1]+out[i-1][j-1]+out[i][j+1]+out[i-1][j+1])
+              }
+            }else if((i!=0&&i!=(width-1))&&j==0){
+              out[i][j] = 1.0/6.0  * (out[i][j]+out[i-1][j]+out[i+1][j]+out[i][j+1]+out[i-1][j+1]+out[i+1][j+1])
+            }else if((i!=0&&i!=(width-1))&&j==(height-1)){
+              out[i][j] = 1.0/6.0  * (out[i][j]+out[i-1][j]+out[i+1][j]+out[i][j-1]+out[i-1][j-1]+out[i+1][j-1])
+            }else{
+              out[i][j] = 1.0/9.0*(out[i][j]+out[i-1][j]+out[i][j-1]+out[i-1][j-1]+out[i][j+1]+
+              out[i-1][j+1]+out[i+1][j]+out[i+1][j-1]+out[i+1][j+1])
+            }
+        }
+      }
+      return out;
+    }
+
+    function rotateMatrix2d(a){
+        var s = Math.sin(a);
+        var c = Math.cos(a);
+        var mat = new Float32Array([c, -s, s, c]);
+        return mat;
+    }
+
+    /**
+     * 创建场景对象Scene
+     */
+    const textureLoader = new THREE.TextureLoader();
+    var tex = textureLoader.load("textures/ripple_normal2.jpg");
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.repeat.set(20, 20);
+
+    var sandtex = textureLoader.load("textures/sand.jpg");
+    sandtex.wrapS = sandtex.wrapT = THREE.RepeatWrapping;
+    sandtex.repeat.set(80, 80);
+
+    var windtex = textureLoader.load("textures/upwind.png");
+    windtex.wrapS = windtex.wrapT = THREE.RepeatWrapping;
+    windtex.repeat.set(80, 80);
+
+    var smoketex = textureLoader.load("textures/smoke.png");
+
+    const iter =10;
+    const width1 = 300;
+    const height1 = 300;
+    const q = 0.1;
+    const rl0 = 2;
+    const bb = 10;
+    var L0 = new Array(1,1);
+    var height_field = new Array(width1);
+    for(var a=0;a<width1;a++)
+    {    height_field[a] = new Array(height1);
+    for(var b=0;b<height1;b++){
+        height_field[a][b] = Math.random();
+    }
+    }
+    
+    
+    for(var i=0;i<iter;i++)
+    {
+        height_field = height_field.map(function(value){return value.map(function(value2){return value2 - q;});}) 
+        var Lx = height_field.map(function(value){return value.map(function(value2){return Math.floor(value2 * bb + L0[0]);});}) 
+        var Ly =  height_field.map(function(value){return value.map(function(value2){return Math.floor(value2 * bb + L0[1]);});}) 
+        for(var dx=0;dx<width1;dx++){
+            for(var dy=0;dy<height1;dy++){
+                var newx = Math.floor((Lx[dx][dy] + dx) % width1)
+                var newy = Math.floor((Ly[dx][dy] + dy) % height1)
+                height_field[newx][newy] += q
+            }
+        }
+        height_field = blur(height_field,width1,height1)
+
+        var dl0 = new Array([0,0])
+        dl0[0] = rl0 * Math.random() - 0.5
+        dl0[1] = rl0 * Math.random() - 0.5
+        L0 = L0.map(function(index,item){
+          return index + dl0[item];
+        });
+    }
+
+    var scene = new THREE.Scene();
+    var renderer = new THREE.WebGLRenderer();
+
+    var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 6000);//new THREE.OrthographicCamera(-s * k, s * k, s, -s, 1, 1000);
+    /**
+    * 相机设置
+    */
+    var width = window.innerWidth; //窗口宽度
+    var height = window.innerHeight; //窗口高度
+    var k = width / height; //窗口宽高比
+    var s = 200; //三维场景显示范围控制系数，系数越大，显示的范围越大
+    //创建相机对象
+    // var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);//new THREE.OrthographicCamera(-s * k, s * k, s, -s, 1, 1000);
+    //camera.position.set(300, 500, 200); //设置相机位置
+    //camera.position.set(150, 250, 100); //设置相机位置
+    camera.position.set(0, 20, 0);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(100, 20, 60); //设置相机方向(指向的场景对象)
+
+    
+    // update viewport on resize
+    window.addEventListener( 'resize', function() {
+      var width = window.innerWidth;
+      var height = window.innerHeight;
+      renderer.setSize( width, height );
+      camera.aspect = width / height; //aspect ratio
+      camera.updateProjectionMatrix();
+      controls.handleResize();
+    });
+
+    // Orbitcontrols
+    //var controls = new OrbitControls( camera, renderer.domElement);
+    //controls.minPolarAngle = Math.PI / 2.0;
+    //controls.maxPolarAngle = Math.PI / 2.0;
+    //controls.minAzimuthAngle = -2.0 * Math.PI;
+    //controls.maxAzimuthAngle = 2.0 * Math.PI;
+
+    // Fpscontrols
+    const clock = new THREE.Clock();
+    var controls = new FirstPersonControls(camera);
+    controls.movementSpeed = 15;
+    controls.lookSpeed = 0.1;
+
+    // Flycontrols
+    //const clock = new THREE.Clock();
+    //var controls = new FlyControls(camera, renderer.domElement);
+    //controls.movementSpeed = 1000;
+    //controls.domElement = renderer.domElement;
+    //controls.rollSpeed = Math.PI / 24;
+    //controls.autoForward = false;
+    //controls.dragToLook = false;
+
+    var sky_geometry = new THREE.SphereGeometry( 5000, 250, 250 );
+    var sky_texture =  new THREE.TextureLoader().load( "textures/day_1.jpg" );
+    sky_texture.wrapS = THREE.RepeatWrapping;
+    sky_texture.repeat.y = 2;
+    //sky_texture.flipY = true;
+    var sphereMaterial = new THREE.MeshBasicMaterial({ map: sky_texture, side: THREE.DoubleSide, fog: false });
+    var skysphere = new THREE.Mesh( sky_geometry, sphereMaterial );
+    scene.add(skysphere);
+    skysphere.rotation.x = -Math.PI;
+    skysphere.position.y = -100
+
+
+    /**
+     * 创建网格模型
+     */
+    // var geometry = new THREE.SphereGeometry(60, 40, 40); //创建一个球体几何对象
+    var geometry = new THREE.PlaneGeometry(1200, 1200,width1-1,height1-1); //创建一个立方体几何对象Geometry
+    var material = new THREE.MeshPhongMaterial({
+        //color: 0xffff00,
+        //flatShading: true,
+        specular: 0x333333,
+        shininess: 2,
+        map: sandtex,
+        normalMap: tex,
+        normalScale: new THREE.Vector2(1, -1)
+      }); //材质对象Material
+
+      var customUniforms = THREE.UniformsUtils.merge([
+          THREE.ShaderLib.phong.uniforms,
+          {
+              normalRepeatTimes: { value: 1.0 },
+              mapRepeatTimes: { value: 1.0 },
+              vWindDirection: { value: new THREE.Vector3(100, 0, 0) },
+              uTime: { value: 0.0 },
+              sDust: { value: null },
+              uDustOpacity: { value: 0.1 },
+              uWindSpeed: { value: 0.2 },
+              uWindTexScale: {value: 2.0},
+              uWavesColor: { value: new THREE.Vector4(1.0, 1.0, 1.0, 1.0) },
+              mWindRotate: { value: rotateMatrix2d(-0.25 * Math.PI) },
+              vFogColor: { value: new THREE.Color(0x8DB3CA) }
+          }
+      ]);
+
+      var duneMaterial = new THREE.ShaderMaterial({
+          uniforms: customUniforms,
+          vertexShader: document.getElementById('vertexshader').textContent,
+          fragmentShader: document.getElementById('fragmentshader').textContent,
+          flatShading: false,
+          lights: true,
+          name: 'custom-material',
+          defines: {
+              USE_UV: "",
+              USE_MAP:"",
+              USE_NORMALMAP: "",
+              TANGENTSPACE_NORMALMAP: "",
+              USE_FOG: ""
+          }
+      });
+
+      //customMaterial.extensions.derivatives = true;
+      duneMaterial.uniforms.map.value = sandtex;
+      duneMaterial.uniforms.normalMap.value = tex;
+      duneMaterial.uniforms.sDust.value = windtex;
+      duneMaterial.uniforms.normalScale.value = new THREE.Vector2(1, -1);
+      duneMaterial.uniforms.specular.value = new THREE.Color(0x333333);
+      duneMaterial.uniforms.shininess.value = 2;
+      duneMaterial.uniforms.normalRepeatTimes.value = 60.0;
+      duneMaterial.uniforms.mapRepeatTimes.value = 80.0;
+      duneMaterial.uniforms.needsUpdate = true;
+
+    var mesh = new THREE.Mesh(geometry, duneMaterial); //网格模型对象Mesh
+    for (var i = 0; i < geometry.attributes.position.count;i++)
+    {
+        var i_width = i % width1;
+        var i_height = Math.floor(i / width1);
+        geometry.attributes.position.array[i*3 + 2] = height_field[i_height][i_width] * 20.0;
+      }
+    
+    geometry.computeVertexNormals();
+    mesh.rotation.x = -Math.PI / 2.0;
+
+    scene.add(mesh); //网格模型添加到场景中
+    
+   // var material = new THREE.LineBasicMaterial({color: 0x0000ff}); //材质对象Material
+    //var line = new THREE.Line(geometry, material); //网格模型对象Mesh
+    //scene.add(line)
+
+   // Particle System
+    var numPoints = 1200;
+    var particle_travel_X = 0.0;
+    var particle_travel_Y = -15.0;
+    var particle_travel_Z = -3.0;
+    var particle_max_scale = 20.0;
+    var particle_speed = 0.2;
+    
+    var particleGeometry = [];
+    var particles = [];
+    var vertices = [];
+
+    for (let i = 0; i < numPoints; i++) {
+
+        const vidx = Math.floor(Math.random() * geometry.attributes.position.count);
+        const x = geometry.attributes.position.array[vidx * 3];
+        const y = geometry.attributes.position.array[vidx * 3 + 1];
+        const z = geometry.attributes.position.array[vidx * 3 + 2] - 2.0;
+
+        const particleMaterial = new THREE.SpriteMaterial({
+            color: 0xD9B779,
+            alphaMap: smoketex,
+            transparent: true
+        });
+
+        vertices.push(x, y, z);
+
+        var apoint = new THREE.BufferGeometry();
+        apoint.setAttribute('position', new THREE.Float32BufferAttribute([x, y, z], 3));
+        particleGeometry.push(apoint);
+
+        var apatricle = new THREE.Sprite(particleMaterial);
+        //apatricle.rotation.x = -Math.PI / 2.0;
+        //apatricle.geometry.center();
+        apatricle.position.set(x, z, y);
+        particles.push(apatricle);
+
+        scene.add(apatricle);
+     }
+
+    function clamp(i, low, high) {
+        return Math.max(Math.min(i, high), low);
+    }
+    function smoothstep(edge0, edge1, x) {
+        const t = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+        return t * t * (3.0 - 2.0 * t);
+    }
+    function smootherstep(edge0, edge1, x) {
+        x = clamp((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+        return x * x * x * (x * (x * 6 - 15) + 10);
+    }
+
+    function updatePatricle(particles, timer){
+        for (let i = 0; i < particles.length; i++) {
+            const timecoeff = (timer * particle_speed + i * 13.37) % 1.0;
+            //const vpos = particles[i].geometry.attributes.position.array;
+            const x = vertices[i*3] + timecoeff * particle_travel_X;
+            const y = vertices[i*3+1] + timecoeff * particle_travel_Y;
+            const z = vertices[i*3+2] + timecoeff * particle_travel_Z;
+            const scale = timecoeff * particle_max_scale;
+            const rotation = i * 35 + timecoeff * (i % 2 === 0 ? 360 : -360);
+            const opacity = (1 - timecoeff) * 0.6;//smootherstep(0.01, 0.1, timecoeff) * (1 - smootherstep(0.7, 0.99, timecoeff));
+
+            //particles[i].geometry.attributes.position.array[0] = x;
+            //particles[i].geometry.attributes.position.array[1] = y;
+            //particles[i].geometry.attributes.position.array[2] = z;
+            //particles[i].geometry.attributes.position.needsUpdate = true;
+
+            particles[i].material.rotation = rotation / 180.0 * Math.PI * 0.3;
+            //particles[i].material.needsUpdate = true;
+
+            //particles[i].rotation.set(rotation / 180.0 * Math.PI);
+            particles[i].position.set(x,z,y);
+            particles[i].scale.set(scale, scale, scale);
+            particles[i].material.opacity = opacity;
+        }
+    }    
+    
+
+    /**
+     * 光源设置
+     */
+    //点光源
+    /*var point = new THREE.PointLight(0xffffff);
+    point.position.set(300, 50, 100); //点光源位置
+    scene.add(point); //点光源添加到场景中*/
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(100, 120, 0)
+    scene.add(directionalLight);
+    //环境光
+    var ambient = new THREE.AmbientLight(0x444444, 2.5);
+    scene.add(ambient);
+    // console.log(scene)
+    // console.log(scene.children)
+    
+    /**
+     * 创建渲染器对象
+     */
+    // var renderer = new THREE.WebGLRenderer();
+    renderer.setSize(width, height);//设置渲染区域尺寸
+    renderer.setClearColor(0xb9d3ff, 1); //设置背景颜色
+    //renderer.setClearColor(0xF0CF5F, 1); 
+    scene.fog = new THREE.Fog(0x8DB3CA, 1.0, 400.0);
+    document.body.appendChild(renderer.domElement); //body元素中插入canvas对象
+    //执行渲染操作   指定场景、相机作为参数
+    //renderer.render(scene, camera);
+
+    var timer = 0;
+    
+    function animate() {
+        timer += 0.01;
+        requestAnimationFrame(animate);
+        controls.update(clock.getDelta());
+        updatePatricle(particles, timer);
+        duneMaterial.uniforms.uTime.value = timer;
+        renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>
