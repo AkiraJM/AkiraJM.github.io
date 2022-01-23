@@ -2,14 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Dunes</title>
+  <title>第一个three.js文件_WebGL三维场景</title>
   <style>
     body {
       margin: 0;
       overflow: hidden;
+      /* 隐藏body窗口区域滚动条 */
     }
   </style>
+  <!--引入three.js三维引擎-->
   <script src="js/three.js"></script>
+  <!-- <script src="js/ObjectLoader.js"></script> -->
 </head>
 <body>
     <script type="x-shader/x-vertex" id="vertexshader">
@@ -203,8 +206,50 @@
 
     </script>
   <script type="module">
+    import { OrbitControls } from './js/OrbitControls.js';
     import { FirstPersonControls } from './js/FirstPersonControls.js';
-    import { GenerateDunes } from './js/GenerateDunes.js';
+    import { FlyControls } from './js/FlyControls.js';
+
+
+    function blur(input,width,height){
+      var out = new Array(width);
+      for(var a=0;a<width;a++)
+      {
+        out[a] = new Array(height);
+        for(var b=0;b<height;b++){
+            out[a][b] = input[a][b];
+      }
+      }
+      for(var i=0; i<width;i++){
+        for(var j =0;j<height;j++){
+            if(i==0){
+              if(j==0){
+                  out[i][j] = 0.25 * (out[i][j]+out[i+1][j]+out[i][j+1]+out[i+1][j+1])
+              }else if(j==height-1){
+                  out[i][j] = 0.25 * (out[i][j]+out[i+1][j]+out[i][j-1]+out[i+1][j-1])
+              }else{
+                  out[i][j] = 1.0/6.0 * (out[i][j]+out[i+1][j]+out[i][j-1]+out[i+1][j-1]+out[i][j+1]+out[i+1][j+1])
+              }
+            }else if(i==width-1){
+              if(j==0){
+                  out[i][j] = 0.25 * (out[i][j]+out[i-1][j]+out[i][j+1]+out[i-1][j+1])
+              }else if(j==height-1){
+                  out[i][j] = 0.25 * (out[i][j]+out[i-1][j]+out[i][j-1]+out[i-1][j-1])
+              }else{
+                  out[i][j] = 1.0/6.0  * (out[i][j]+out[i-1][j]+out[i][j-1]+out[i-1][j-1]+out[i][j+1]+out[i-1][j+1])
+              }
+            }else if((i!=0&&i!=(width-1))&&j==0){
+              out[i][j] = 1.0/6.0  * (out[i][j]+out[i-1][j]+out[i+1][j]+out[i][j+1]+out[i-1][j+1]+out[i+1][j+1])
+            }else if((i!=0&&i!=(width-1))&&j==(height-1)){
+              out[i][j] = 1.0/6.0  * (out[i][j]+out[i-1][j]+out[i+1][j]+out[i][j-1]+out[i-1][j-1]+out[i+1][j-1])
+            }else{
+              out[i][j] = 1.0/9.0*(out[i][j]+out[i-1][j]+out[i][j-1]+out[i-1][j-1]+out[i][j+1]+
+              out[i-1][j+1]+out[i+1][j]+out[i+1][j-1]+out[i+1][j+1])
+            }
+        }
+      }
+      return out;
+    }
 
     function rotateMatrix2d(a){
         var s = Math.sin(a);
@@ -213,6 +258,9 @@
         return mat;
     }
 
+    /**
+     * 创建场景对象Scene
+     */
     const textureLoader = new THREE.TextureLoader();
     var tex = textureLoader.load("textures/ripple_normal2.jpg");
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
@@ -228,21 +276,62 @@
 
     var smoketex = textureLoader.load("textures/smoke.png");
 
+    const iter =10;
+    const width1 = 300;
+    const height1 = 300;
+    const q = 0.1;
+    const rl0 = 2;
+    const bb = 10;
+    var L0 = new Array(1,1);
+    var height_field = new Array(width1);
+    for(var a=0;a<width1;a++)
+    {    height_field[a] = new Array(height1);
+    for(var b=0;b<height1;b++){
+        height_field[a][b] = Math.random();
+    }
+    }
+    
+    
+    for(var i=0;i<iter;i++)
+    {
+        height_field = height_field.map(function(value){return value.map(function(value2){return value2 - q;});}) 
+        var Lx = height_field.map(function(value){return value.map(function(value2){return Math.floor(value2 * bb + L0[0]);});}) 
+        var Ly =  height_field.map(function(value){return value.map(function(value2){return Math.floor(value2 * bb + L0[1]);});}) 
+        for(var dx=0;dx<width1;dx++){
+            for(var dy=0;dy<height1;dy++){
+                var newx = Math.floor((Lx[dx][dy] + dx) % width1)
+                var newy = Math.floor((Ly[dx][dy] + dy) % height1)
+                height_field[newx][newy] += q
+            }
+        }
+        height_field = blur(height_field,width1,height1)
+
+        var dl0 = new Array([0,0])
+        dl0[0] = rl0 * Math.random() - 0.5
+        dl0[1] = rl0 * Math.random() - 0.5
+        L0 = L0.map(function(index,item){
+          return index + dl0[item];
+        });
+    }
+
     var scene = new THREE.Scene();
     var renderer = new THREE.WebGLRenderer();
 
     var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 6000);//new THREE.OrthographicCamera(-s * k, s * k, s, -s, 1, 1000);
-
-    var width = window.innerWidth;
-    var height = window.innerHeight;
-    var k = width / height;
-    var s = 200;
+    /**
+    * 相机设置
+    */
+    var width = window.innerWidth; //窗口宽度
+    var height = window.innerHeight; //窗口高度
+    var k = width / height; //窗口宽高比
+    var s = 200; //三维场景显示范围控制系数，系数越大，显示的范围越大
+    //创建相机对象
     // var camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);//new THREE.OrthographicCamera(-s * k, s * k, s, -s, 1, 1000);
-    //camera.position.set(300, 500, 200); 
-    //camera.position.set(150, 250, 100); 
-    //camera.position.set(0, 20, 0);
+    //camera.position.set(300, 500, 200); //设置相机位置
+    //camera.position.set(150, 250, 100); //设置相机位置
+    camera.position.set(0, 20, 0);
     camera.up.set(0, 1, 0);
-    camera.lookAt(100, 20, 60);
+    camera.lookAt(100, 20, 60); //设置相机方向(指向的场景对象)
 
     
     // update viewport on resize
@@ -255,11 +344,27 @@
       controls.handleResize();
     });
 
+    // Orbitcontrols
+    //var controls = new OrbitControls( camera, renderer.domElement);
+    //controls.minPolarAngle = Math.PI / 2.0;
+    //controls.maxPolarAngle = Math.PI / 2.0;
+    //controls.minAzimuthAngle = -2.0 * Math.PI;
+    //controls.maxAzimuthAngle = 2.0 * Math.PI;
+
     // Fpscontrols
     const clock = new THREE.Clock();
     var controls = new FirstPersonControls(camera);
     controls.movementSpeed = 15;
     controls.lookSpeed = 0.1;
+
+    // Flycontrols
+    //const clock = new THREE.Clock();
+    //var controls = new FlyControls(camera, renderer.domElement);
+    //controls.movementSpeed = 1000;
+    //controls.domElement = renderer.domElement;
+    //controls.rollSpeed = Math.PI / 24;
+    //controls.autoForward = false;
+    //controls.dragToLook = false;
 
     var sky_geometry = new THREE.SphereGeometry( 5000, 250, 250 );
     var sky_texture =  new THREE.TextureLoader().load( "textures/day_1.jpg" );
@@ -273,16 +378,20 @@
     skysphere.position.y = -100
 
 
-    var iter_def = 50;
-    const width_def = 300;
-    const height_def = 300;
-    const q_def = 0.1;
-    const rl0_def = 10.0;
-    const bb_def = 10;
-    var L0_def = new Array(1, 1);
-
-    // var geometry = new THREE.SphereGeometry(60, 40, 40);
-    var geometry = new THREE.PlaneGeometry(1200, 1200,width_def-1,height_def-1);
+    /**
+     * 创建网格模型
+     */
+    // var geometry = new THREE.SphereGeometry(60, 40, 40); //创建一个球体几何对象
+    var geometry = new THREE.PlaneGeometry(1200, 1200,width1-1,height1-1); //创建一个立方体几何对象Geometry
+    var material = new THREE.MeshPhongMaterial({
+        //color: 0xffff00,
+        //flatShading: true,
+        specular: 0x333333,
+        shininess: 2,
+        map: sandtex,
+        normalMap: tex,
+        normalScale: new THREE.Vector2(1, -1)
+      }); //材质对象Material
 
       var customUniforms = THREE.UniformsUtils.merge([
           THREE.ShaderLib.phong.uniforms,
@@ -328,64 +437,21 @@
       duneMaterial.uniforms.mapRepeatTimes.value = 80.0;
       duneMaterial.uniforms.needsUpdate = true;
 
-    var mesh = new THREE.Mesh(geometry, duneMaterial); 
-
-    function init(iter = iter_def,width=width_def,height=height_def,q=q_def,rl0=rl0_def,bb=bb_def){ 
-        var height_field_base = new Array(width);
-        for(var a=0;a<width;a++)
-        {    height_field_base[a] = new Array(height);
-        for(var b=0;b<height;b++){
-            height_field_base[a][b] = Math.random();
-        }
-        }
-        var i_width = 0;
-        var i_height = 0;
-        var L0 = new Array(1,1);
-        var [height_field,L0] = GenerateDunes(height_field_base,iter,width,height,q,rl0,bb,L0);
-        for (var i = 0; i < geometry.attributes.position.count;i++)
-        {
-            i_width = i % width;
-            i_height = Math.floor(i / width);
-            geometry.attributes.position.array[i*3 + 2] = height_field[i_height][i_width] * 20.0;
-        }
-        geometry.computeVertexNormals();
-        return [height_field,L0];
+    var mesh = new THREE.Mesh(geometry, duneMaterial); //网格模型对象Mesh
+    for (var i = 0; i < geometry.attributes.position.count;i++)
+    {
+        var i_width = i % width1;
+        var i_height = Math.floor(i / width1);
+        geometry.attributes.position.array[i*3 + 2] = height_field[i_height][i_width] * 20.0;
       }
-
-    var [height_field,L0] = init();
-
-    function UpdateDune(height_field,L0,iter, speed = 1.0, width=width_def,height=height_def,q=q_def,rl0=rl0_def,bb=bb_def){
-        var i_width = 0;
-        var i_height = 0;
-        var old_hf = new Array(width);
-        for (var a = 0; a < width; a++) {
-            old_hf[a] = new Array(height);
-            for (var b = 0; b < height; b++) {
-                old_hf[a][b] = height_field[a][b];
-            }
-        }
-        [height_field,L0] = GenerateDunes(height_field,iter,width,height,q,rl0,bb,L0);
-        for (var i = 0; i < geometry.attributes.position.count;i++)
-        {
-            i_width = i % width;
-            i_height = Math.floor(i / width);
-            var real_h = (speed * height_field[i_height][i_width] + (1 - speed) * old_hf[i_height][i_width]);
-            geometry.attributes.position.array[i * 3 + 2] = real_h * 20.0;
-            height_field[i_height][i_width] = real_h;
-        }
-        geometry.computeVertexNormals();
-        geometry.attributes.position.needsUpdate = true;
-        return [height_field,L0];
-    }
-
-    camera.position.set(0, height_field[Math.floor(height_def / 2.0)][Math.floor(width_def / 2.0)] * 20.0 + 5.0, 0);
     
+    geometry.computeVertexNormals();
     mesh.rotation.x = -Math.PI / 2.0;
 
-    scene.add(mesh); 
+    scene.add(mesh); //网格模型添加到场景中
     
-   // var material = new THREE.LineBasicMaterial({color: 0x0000ff}); 
-    //var line = new THREE.Line(geometry, material); 
+   // var material = new THREE.LineBasicMaterial({color: 0x0000ff}); //材质对象Material
+    //var line = new THREE.Line(geometry, material); //网格模型对象Mesh
     //scene.add(line)
 
    // Particle System
@@ -466,24 +532,33 @@
         }
     }    
     
+
+    /**
+     * 光源设置
+     */
+    //点光源
     /*var point = new THREE.PointLight(0xffffff);
-    point.position.set(300, 50, 100); 
-    scene.add(point); */
+    point.position.set(300, 50, 100); //点光源位置
+    scene.add(point); //点光源添加到场景中*/
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
     directionalLight.position.set(100, 120, 0)
     scene.add(directionalLight);
-
-    var ambient = new THREE.AmbientLight(0x444444, 2.0);
+    //环境光
+    var ambient = new THREE.AmbientLight(0x444444, 2.5);
     scene.add(ambient);
     // console.log(scene)
     // console.log(scene.children)
     
+    /**
+     * 创建渲染器对象
+     */
     // var renderer = new THREE.WebGLRenderer();
-    renderer.setSize(width, height);
-    renderer.setClearColor(0xb9d3ff, 1);
+    renderer.setSize(width, height);//设置渲染区域尺寸
+    renderer.setClearColor(0xb9d3ff, 1); //设置背景颜色
     //renderer.setClearColor(0xF0CF5F, 1); 
     scene.fog = new THREE.Fog(0x8DB3CA, 1.0, 400.0);
-    document.body.appendChild(renderer.domElement); 
+    document.body.appendChild(renderer.domElement); //body元素中插入canvas对象
+    //执行渲染操作   指定场景、相机作为参数
     //renderer.render(scene, camera);
 
     var timer = 0;
@@ -492,7 +567,6 @@
         timer += 0.01;
         requestAnimationFrame(animate);
         controls.update(clock.getDelta());
-        //[height_field, L0] = UpdateDune(height_field, L0, 1);
         updatePatricle(particles, timer);
         duneMaterial.uniforms.uTime.value = timer;
         renderer.render(scene, camera);
